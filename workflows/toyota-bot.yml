@@ -1,0 +1,57 @@
+# ──────────────────────────────────────────────────────────────────────────
+#  Rastreador Toyota Ocasión  ->  ejecución gratuita y permanente en la nube
+#  (GitHub Actions, repositorio PÚBLICO = minutos gratis e ilimitados)
+# ──────────────────────────────────────────────────────────────────────────
+name: Rastreador Toyota Ocasión
+
+on:
+  schedule:
+    # Cada 15 minutos. OJO: GitHub usa hora UTC y puede retrasar/agrupar las
+    # ejecuciones programadas en horas punta (a veces tarda más de 15 min).
+    # Para un buscador de coches es perfectamente aceptable.
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}        # permite lanzarlo a mano desde la pestaña "Actions"
+
+# Evita que dos ejecuciones se solapen.
+concurrency:
+  group: toyota-bot
+  cancel-in-progress: false
+
+permissions:
+  contents: write              # necesario para guardar el estado (coches_vistos.json)
+
+jobs:
+  rastrear:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar el repositorio
+        uses: actions/checkout@v4
+
+      - name: Preparar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependencias (solo requests; modo api, sin navegador)
+        run: pip install requests
+
+      - name: Ejecutar una pasada del rastreador
+        env:
+          TELEGRAM_TOKEN:    ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID:  ${{ secrets.TELEGRAM_CHAT_ID }}
+          TOYOTA_SEARCH_URL: ${{ secrets.TOYOTA_SEARCH_URL }}
+          SCRAPER_ENGINE:    api          # sin Selenium: rápido y sin Chrome
+          STATE_FILE:        coches_vistos.json
+        run: python bot_toyota.py --once
+
+      - name: Guardar la memoria de coches ya vistos
+        run: |
+          if [ -n "$(git status --porcelain coches_vistos.json)" ]; then
+            git config user.name  "toyota-bot"
+            git config user.email "bot@users.noreply.github.com"
+            git add coches_vistos.json
+            git commit -m "Estado: coches vistos actualizado [skip ci]"
+            git push
+          else
+            echo "Sin cambios en el estado."
+          fi
